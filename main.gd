@@ -2847,32 +2847,13 @@ func _refresh_board(cells_to_update: Array[Vector2i] = []) -> void:
                     if tile_state.get(side_cell, "base") in ["base", "active"]:
                         tile_state[side_cell] = "side_option"
 
-    # Atualizacoes parciais (ex.: onda de selecao) tambem precisam
-    # reconciliar qualquer tile cujo estado logico ou visual tenha ficado
-    # desatualizado. Antes, uma onda redesenhava apenas suas celulas e deixava
-    # foco, letras, blocos laterais e HUD presos ao estado anterior.
     var cells_to_render: Array[Vector2i] = []
-    var render_set: Dictionary = {}
-    for raw_cell in cells_to_update:
-        render_set[raw_cell] = true
-    for raw_cell in board.keys():
-        var board_cell: Vector2i = raw_cell
-        var desired_kind: String = tile_state.get(board_cell, "base")
-        var previous_kind: String = String(previous_tile_state.get(board_cell, ""))
-        var expected_letter: String = String(letters.get(board_cell, ""))
-        var expected_pickup: String = String(pickups.get(board_cell, "")) if not (level_mode and board_cell == exit_cell) else ""
-        var tile: MeshInstance3D = board[board_cell]
-        var existing_label: Label3D = tile.get_node_or_null("TileLabel") as Label3D
-        var label_is_stale: bool = (not expected_letter.is_empty() and (existing_label == null or not existing_label.visible or existing_label.text != expected_letter)) or (expected_letter.is_empty() and existing_label != null)
-        var existing_icon: Sprite3D = tile.get_node_or_null("PickupIcon") as Sprite3D
-        var icon_is_stale: bool = (not expected_pickup.is_empty() and (existing_icon == null or not existing_icon.visible or existing_icon.texture == null)) or (expected_pickup.is_empty() and existing_icon != null)
-        var top_material_missing: bool = tile.get_surface_override_material(0) == null
-        var edge_material_missing: bool = tile.get_surface_override_material(1) == null
-        var skirt_material_missing: bool = (tile.get_node("Skirt") as MeshInstance3D).material_override == null
-        if cells_to_update.is_empty() or previous_kind != desired_kind or label_is_stale or icon_is_stale or top_material_missing or edge_material_missing or skirt_material_missing:
-            render_set[board_cell] = true
-    for raw_cell in render_set.keys():
-        cells_to_render.append(raw_cell)
+    if cells_to_update.is_empty():
+        for raw_cell in board.keys():
+            var board_cell: Vector2i = raw_cell
+            cells_to_render.append(board_cell)
+    else:
+        cells_to_render = cells_to_update
     for p in cells_to_render:
         if not board.has(p):
             continue
@@ -3061,8 +3042,8 @@ func _refresh_board(cells_to_update: Array[Vector2i] = []) -> void:
             _remove_tile_visual(p, "PickupIcon")
     # A ordem serve apenas para esta atualizacao do tabuleiro.
     direction_transition_order.clear()
-    # O HUD acompanha qualquer reconciliacao, inclusive as parciais.
-    _update_hud()
+    if cells_to_update.is_empty():
+        _update_hud()
 
 func _update_hud() -> void:
     var seconds: int = maxi(0, int(ceil(path_time)))
