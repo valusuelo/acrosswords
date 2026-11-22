@@ -2973,6 +2973,15 @@ func _refresh_board(cells_to_update: Array[Vector2i] = []) -> void:
             top_color = transition["from_color"].lerp(transition["to_color"], transition_eased)
             skirt_color = transition["from_skirt"].lerp(transition["to_skirt"], transition_eased)
             target_height = float(transition["to_height"])
+        # A onda de selecao e renderizada no fluxo normal de cores; assim
+        # digitacao/refresh nao substituem os materiais da animacao.
+        if word_selection_wave.has(p):
+            var selection_data: Dictionary = word_selection_wave[p]
+            var wave_progress: float = clampf((elapsed - float(selection_data["start_at"])) / float(selection_data["duration"]), 0.0, 1.0)
+            var wave_eased: float = wave_progress * wave_progress * (3.0 - 2.0 * wave_progress)
+            top_color = selection_data["from_top"].lerp(selection_data["to_top"], wave_eased)
+            skirt_color = selection_data["from_skirt"].lerp(selection_data["to_skirt"], wave_eased)
+            target_height = 0.03
         var letter_text: String = String(letters[p]) if letters.has(p) else ""
         var pickup_text: String = String(pickups[p]) if pickups.has(p) and not (level_mode and p == exit_cell) else ""
         var signature: Dictionary = {
@@ -3242,27 +3251,22 @@ func _process(delta: float) -> void:
             for cell in done:
                 flash_cells.erase(cell)
             _refresh_board()
-    # Onda de destaque da palavra ativa: dourado e lilas em propagacao.
+    # Atualiza a onda de selecao atraves do renderer do tabuleiro.
+    # Nao aplica materiais diretamente: _refresh_board mantem cores e animacao sincronizadas.
     if not word_selection_wave.is_empty():
-        var finished_selection_wave: Array[Vector2i] = []
+        var wave_cells: Array[Vector2i] = []
+        var completed_wave: Array[Vector2i] = []
         for cell in word_selection_wave.keys():
+            wave_cells.append(cell)
             var wave_data: Dictionary = word_selection_wave[cell]
-            var progress: float = clampf((elapsed - float(wave_data["start_at"])) / float(wave_data["duration"]), 0.0, 1.0)
-            var eased: float = progress * progress * (3.0 - 2.0 * progress)
-            if board.has(cell):
-                var tile: MeshInstance3D = board[cell]
-                var shown_top: Color = wave_data["from_top"].lerp(wave_data["to_top"], eased)
-                var shown_skirt: Color = wave_data["from_skirt"].lerp(wave_data["to_skirt"], eased)
-                if not wave_data.has("materials"):
-                    wave_data["materials"] = _make_tile_animation_materials(tile, shown_top, shown_skirt)
-                    word_selection_wave[cell] = wave_data
-                _apply_tile_animation_materials(wave_data["materials"], shown_top, shown_skirt)
-            if progress >= 1.0:
-                finished_selection_wave.append(cell)
-        for cell in finished_selection_wave:
+            if elapsed >= float(wave_data["start_at"]) + float(wave_data["duration"]):
+                completed_wave.append(cell)
+        if not wave_cells.is_empty():
+            _refresh_board(wave_cells)
+        for cell in completed_wave:
             word_selection_wave.erase(cell)
-        if not finished_selection_wave.is_empty():
-            _refresh_board()
+        if not completed_wave.is_empty():
+            _refresh_board(completed_wave)
     if not word_fade_cells.is_empty():
         var faded: Array[Vector2i] = []
         for cell in word_fade_cells.keys():
