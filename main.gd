@@ -2857,6 +2857,13 @@ func _refresh_board(cells_to_update: Array[Vector2i] = []) -> void:
     for p in cells_to_render:
         if not board.has(p):
             continue
+        # Uma atualizacao interativa tem prioridade sobre a animacao de
+        # abertura da etapa. Sem cancelar a animacao antiga, _process()
+        # reaplica a cor-alvo capturada na abertura a cada frame e sobrescreve
+        # selecao, letras digitadas e o destaque dourado da palavra ativa.
+        for opening_index in range(stage_open_tiles.size() - 1, -1, -1):
+            if stage_open_tiles[opening_index].get("cell", Vector2i(-999999, -999999)) == p:
+                stage_open_tiles.remove_at(opening_index)
         var tile: MeshInstance3D = board[p]
         var kind: String = tile_state.get(p, "base")
         var top_color: Color = BASE
