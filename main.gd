@@ -3535,7 +3535,7 @@ func _start_pointer(screen_pos: Vector2) -> void:
     # Um toque/arrasto pode iniciar em qualquer letra de qualquer palavra
     # resolvida; antes, a captura era limitada a last_solved_word e as letras
     # antigas eram interpretadas como gesto de pan.
-    if _is_solved_cell(pointer_cell):
+    if _is_solved_cell(pointer_cell) or tile_state.get(pointer_cell, "") == "side_option":
         pointer_down = true
         panning_board = false
     # As setas desenhadas continuam clicaveis fora das letras.
