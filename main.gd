@@ -3746,7 +3746,11 @@ func _sync_visible_board(force: bool = false) -> void:
         if not _inside_level(p):
             created_outer_word_cells.append(p)
     if not created_cells.is_empty():
-        _refresh_board(created_cells)
+        # A mudanca da regiao visivel pode ocorrer junto com a selecao de
+        # uma ancora. Recalcular o estado logico e redesenhar apenas os tiles
+        # novos deixava os tiles ja existentes com a aparencia anterior.
+        # Apos mover/zoomar a camera, sincronizamos todo o tabuleiro visivel.
+        _refresh_board()
         if stage_wave_active:
             _queue_stage_open_tiles(created_cells)
         elif not created_outer_word_cells.is_empty():
