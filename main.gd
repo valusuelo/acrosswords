@@ -3017,14 +3017,20 @@ func _refresh_board(cells_to_update: Array[Vector2i] = []) -> void:
         # A assinatura otimiza apenas os materiais. Os labels/icons são
         # reconciliados sempre, pois animações e remoções deferred podem
         # deixar um visual ausente mesmo quando o estado lógico não mudou.
-        var signature_changed: bool = tile_visual_signatures.get(p, {}) != signature
-        if signature_changed:
-            tile_visual_signatures[p] = signature
-            var mat_name: String = top_color.to_html()
-            tile.set_surface_override_material(0, _material_cached("tile_top_" + mat_name, top_color))
-            tile.set_surface_override_material(1, _material_cached("tile_edge_" + mat_name, top_color.darkened(0.22)))
-            var skirt: MeshInstance3D = tile.get_node("Skirt") as MeshInstance3D
-            skirt.material_override = _material_cached("skirt_" + skirt_color.to_html(), skirt_color)
+        tile_visual_signatures[p] = signature
+        var mat_name: String = top_color.to_html()
+        var desired_top: Material = _material_cached("tile_top_" + mat_name, top_color)
+        var desired_edge: Material = _material_cached("tile_edge_" + mat_name, top_color.darkened(0.22))
+        var current_top: Material = tile.get_surface_override_material(0)
+        var current_edge: Material = tile.get_surface_override_material(1)
+        if current_top != desired_top:
+            tile.set_surface_override_material(0, desired_top)
+        if current_edge != desired_edge:
+            tile.set_surface_override_material(1, desired_edge)
+        var skirt: MeshInstance3D = tile.get_node("Skirt") as MeshInstance3D
+        var desired_skirt: Material = _material_cached("skirt_" + skirt_color.to_html(), skirt_color)
+        if skirt.material_override != desired_skirt:
+            skirt.material_override = desired_skirt
         if not letter_text.is_empty():
             var letter_color: Color = Color("#34313a") if kind == "draft" else TILE_LETTER
             _draw_text(p, letter_text, letter_color, 0.64)
