@@ -1959,16 +1959,40 @@ func _choose(index: int) -> void:
 func _click_tile(p: Vector2i) -> void:
     if game_over:
         return
-    # Qualquer letra de qualquer palavra resolvida pode se tornar uma ancora.
+    # Letras compartilhadas funcionam como seletor ciclico entre todas as
+    # palavras resolvidas que cruzam esta coordenada.
+    var owners: Array[int] = []
+    var owner_anchors: Dictionary = {}
     for i in range(words.size() - 1, -1, -1):
         if words[i].get("state", "") != "solved":
             continue
         var cells: Array[Vector2i] = _cells(words[i])
         var anchor: int = cells.find(p)
         if anchor >= 0:
-            last_navigation_arrow = Vector2i.ZERO
-            _select_anchor(i, anchor)
-            return
+            owners.append(i)
+            owner_anchors[i] = anchor
+    if not owners.is_empty():
+        var selected_owner: int = owners[0]
+        if owners.size() > 1:
+            var current_owner: int = preview_parent if preview_parent >= 0 else last_solved_word
+            var current_position: int = owners.find(current_owner)
+            if current_position >= 0:
+                selected_owner = owners[(current_position + 1) % owners.size()]
+        last_navigation_arrow = Vector2i.ZERO
+        _select_anchor(selected_owner, int(owner_anchors[selected_owner]))
+        return
+    # Blocos laterais da ancora selecionada: tocar alterna a direcao da
+    # ramificacao sem precisar tocar numa letra adjacente da palavra.
+    if preview_parent >= 0 and preview_parent < words.size() and preview_anchor >= 0:
+        var parent_cells: Array[Vector2i] = _cells(words[preview_parent])
+        if preview_anchor < parent_cells.size():
+            var anchor_cell: Vector2i = parent_cells[preview_anchor]
+            var parent_axis: Vector2i = Vector2i(words[preview_parent]["dir"])
+            var sides: Array[Vector2i] = [Vector2i(0, 1), Vector2i(0, -1)] if parent_axis.x != 0 else [Vector2i(1, 0), Vector2i(-1, 0)]
+            for side in sides:
+                if p == anchor_cell + side:
+                    _apply_direction(side)
+                    return
     # Antes da primeira palavra resolvida, permite selecionar a palavra inicial.
     for i in range(words.size() - 1, -1, -1):
         if words[i]["state"] == "active" and _cells(words[i]).has(p):
@@ -2808,19 +2832,20 @@ func _refresh_board(cells_to_update: Array[Vector2i] = []) -> void:
                 tile_state[preview_cell] = "anchor_focus"
     if board.has(focus_cell):
         tile_state[focus_cell] = "focus"
-    # O lado nao escolhido mostra um UNICO bloco oliva. O lado selecionado
-    # e representado pelos blocos da palavra proposta (sem setas flutuantes).
+    # As duas direcoes perpendiculares da ancora ficam selecionaveis.
+    # A direcao com previa mostra seus tiles; a outra mostra o bloco oliva.
+    # Em candidatas vazias, os dois blocos aparecem como opcoes.
     if preview_parent >= 0 and preview_parent < words.size() and preview_anchor >= 0:
         var anchor_cells: Array[Vector2i] = _cells(words[preview_parent])
         if preview_anchor < anchor_cells.size():
             var axis: Vector2i = Vector2i(words[preview_parent]["dir"])
-            var opposite: Vector2i = -preview_dir
-            if opposite == Vector2i.ZERO:
-                opposite = Vector2i(0, 1) if axis.x != 0 else Vector2i(1, 0)
-            var side_cell: Vector2i = anchor_cells[preview_anchor] + opposite
-            if board.has(side_cell) and not (level_mode and side_cell == exit_cell):
-                if tile_state.get(side_cell, "base") in ["base", "active", "preview"]:
-                    tile_state[side_cell] = "side_option"
+            var sides: Array[Vector2i] = [Vector2i(0, 1), Vector2i(0, -1)] if axis.x != 0 else [Vector2i(1, 0), Vector2i(-1, 0)]
+            var anchor_cell: Vector2i = anchor_cells[preview_anchor]
+            for side in sides:
+                var side_cell: Vector2i = anchor_cell + side
+                if board.has(side_cell) and not (level_mode and side_cell == exit_cell):
+                    if tile_state.get(side_cell, "base") in ["base", "active"]:
+                        tile_state[side_cell] = "side_option"
 
     var cells_to_render: Array[Vector2i] = []
     if cells_to_update.is_empty():
