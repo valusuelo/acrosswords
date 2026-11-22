@@ -3311,11 +3311,16 @@ func _screen_to_cell(screen_pos: Vector2) -> Vector2i:
 # O eixo e os índices são calculados pela posição real da casa, sem usar o
 # sentido em que a palavra foi escrita. Nunca altera a direção perpendicular.
 func _is_solved_cell(cell: Vector2i) -> bool:
-    if not _inside_level(cell) or last_solved_word < 0 or last_solved_word >= words.size():
+    if not _inside_level(cell):
         return false
-    if words[last_solved_word]["state"] != "solved":
-        return false
-    return _cells(words[last_solved_word]).has(cell)
+    # Qualquer palavra resolvida pode servir como ponto de retorno,
+    # nao apenas a ultima palavra da partida.
+    for word_index in range(words.size() - 1, -1, -1):
+        if words[word_index].get("state", "") != "solved":
+            continue
+        if _cells(words[word_index]).has(cell):
+            return true
+    return false
 
 func _navigate_to_solved_cell(direction: Vector2i) -> bool:
     if direction == Vector2i.ZERO or preview_parent < 0 or preview_parent >= words.size():
@@ -3502,10 +3507,12 @@ func _start_pointer(screen_pos: Vector2) -> void:
     pointer_dragged = false
     panning_board = true
     pan_last_screen = screen_pos
-    if last_solved_word >= 0 and last_solved_word < words.size():
-        if words[last_solved_word]["state"] == "solved" and _inside_level(pointer_cell) and _cells(words[last_solved_word]).has(pointer_cell):
-            pointer_down = true
-            panning_board = false
+    # Um toque/arrasto pode iniciar em qualquer letra de qualquer palavra
+    # resolvida; antes, a captura era limitada a last_solved_word e as letras
+    # antigas eram interpretadas como gesto de pan.
+    if _is_solved_cell(pointer_cell):
+        pointer_down = true
+        panning_board = false
     # As setas desenhadas continuam clicaveis fora das letras.
     if not pointer_down and _try_tap_branch_arrow(screen_pos):
         return
