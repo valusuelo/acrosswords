@@ -2863,10 +2863,13 @@ func _refresh_board(cells_to_update: Array[Vector2i] = []) -> void:
         var expected_pickup: String = String(pickups.get(board_cell, "")) if not (level_mode and board_cell == exit_cell) else ""
         var tile: MeshInstance3D = board[board_cell]
         var existing_label: Label3D = tile.get_node_or_null("TileLabel") as Label3D
-        var label_is_stale: bool = (not expected_letter.is_empty() and (existing_label == null or existing_label.text != expected_letter)) or (expected_letter.is_empty() and existing_label != null)
+        var label_is_stale: bool = (not expected_letter.is_empty() and (existing_label == null or not existing_label.visible or existing_label.text != expected_letter)) or (expected_letter.is_empty() and existing_label != null)
         var existing_icon: Sprite3D = tile.get_node_or_null("PickupIcon") as Sprite3D
-        var icon_is_stale: bool = (not expected_pickup.is_empty() and (existing_icon == null or existing_icon.texture == null)) or (expected_pickup.is_empty() and existing_icon != null)
-        if cells_to_update.is_empty() or previous_kind != desired_kind or label_is_stale or icon_is_stale:
+        var icon_is_stale: bool = (not expected_pickup.is_empty() and (existing_icon == null or not existing_icon.visible or existing_icon.texture == null)) or (expected_pickup.is_empty() and existing_icon != null)
+        var top_material_missing: bool = tile.get_surface_override_material(0) == null
+        var edge_material_missing: bool = tile.get_surface_override_material(1) == null
+        var skirt_material_missing: bool = (tile.get_node("Skirt") as MeshInstance3D).material_override == null
+        if cells_to_update.is_empty() or previous_kind != desired_kind or label_is_stale or icon_is_stale or top_material_missing or edge_material_missing or skirt_material_missing:
             render_set[board_cell] = true
     for raw_cell in render_set.keys():
         cells_to_render.append(raw_cell)
