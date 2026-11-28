@@ -1775,12 +1775,28 @@ func _preview_default_direction(index: int) -> Vector2i:
 
 func _begin_word_selection_wave(previous_index: int, selected_index: int, selected_anchor: int) -> void:
     # Captura as cores atuais e propaga a troca de destaque letra a letra.
-    word_selection_wave.clear()
     var transition_words: Array[int] = []
     if previous_index >= 0 and previous_index < words.size() and previous_index != selected_index:
         transition_words.append(previous_index)
     if selected_index >= 0 and selected_index < words.size():
         transition_words.append(selected_index)
+    # Se uma onda anterior ainda estava em andamento (troca muito rapida
+    # entre as duas direcoes de um canto, por exemplo), as celulas que nao
+    # fazem parte desta nova transicao ficariam "congeladas" numa cor
+    # intermediaria para sempre, pois nunca mais seriam visitadas pelo loop
+    # de atualizacao da onda. Antes de descartar a onda anterior, forcamos
+    # essas celulas a mostrar sua cor final correta.
+    var transition_cells: Dictionary = {}
+    for word_index in transition_words:
+        for cell in _cells(words[word_index]):
+            transition_cells[cell] = true
+    var stale_cells: Array[Vector2i] = []
+    for cell in word_selection_wave.keys():
+        if not transition_cells.has(cell):
+            stale_cells.append(cell)
+    word_selection_wave.clear()
+    if not stale_cells.is_empty():
+        _refresh_board(stale_cells)
     for word_index in transition_words:
         var cells: Array[Vector2i] = _cells(words[word_index])
         var is_selected: bool = word_index == selected_index
@@ -1797,12 +1813,18 @@ func _begin_word_selection_wave(previous_index: int, selected_index: int, select
                 current_top = (top_material as StandardMaterial3D).albedo_color
             if skirt_material is StandardMaterial3D:
                 current_skirt = (skirt_material as StandardMaterial3D).albedo_color
+            # A palavra que esta SAINDO de selecao nao usa atraso em cascata
+            # nem duracao longa: se ela demorasse para perder o dourado, uma
+            # troca rapida entre as duas direcoes de um canto a pegaria ainda
+            # "arrastando" a cor antiga e pareceria que as duas palavras
+            # ficaram destacadas ao mesmo tempo. A palavra que esta ENTRANDO
+            # mantem a cascata, que e o efeito visual desejado.
             word_selection_wave[cell] = {
                 "from_top": current_top, "from_skirt": current_skirt,
                 "to_top": CURRENT_WORD if is_selected else SOLVED,
                 "to_skirt": CURRENT_WORD_SIDE if is_selected else SIDE_SOLVED,
-                "start_at": elapsed + float(absi(letter_index - (selected_anchor if is_selected else 0))) * 0.045,
-                "duration": 0.28
+                "start_at": elapsed + (float(absi(letter_index - selected_anchor)) * 0.045 if is_selected else 0.0),
+                "duration": 0.28 if is_selected else 0.12
             }
 
 func _select_anchor(index: int, anchor: int) -> void:
