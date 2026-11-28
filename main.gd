@@ -2013,6 +2013,14 @@ func _click_tile(p: Vector2i, entry_direction: Vector2i = Vector2i.ZERO) -> void
                 if axis.x * entry_direction.x + axis.y * entry_direction.y != 0:
                     chosen_index = i
                     break
+        elif matches.size() > 1 and matches.has(last_solved_word):
+            # Clique direto (sem direcao de arrasto) numa casa que pertence
+            # tanto a palavra ja ativa quanto a outra palavra que a cruza
+            # numa letra diferente: continua na palavra atual (so muda a
+            # ancora). Sem isso, clicar em qualquer letra da palavra atual
+            # que cruzasse outra ja resolvida pulava direto pra essa outra
+            # palavra, independente de qual letra foi clicada.
+            chosen_index = last_solved_word
         var anchor: int = _cells(words[chosen_index]).find(p)
         if anchor >= 0:
             last_navigation_arrow = Vector2i.ZERO
