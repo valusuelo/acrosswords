@@ -351,6 +351,13 @@ func _load_word_bank() -> void:
                 var clue: String = String(record.get("clue", "")).strip_edges()
                 if answer.length() < 2 or clue.is_empty():
                     continue
+                # O banco de palavras traz variantes no plural marcadas com
+                # "(pl.)" na propria dica (ex.: "CASAS" / "Lugar onde
+                # moramos (pl.)"). Elas nao entram como candidatas de
+                # ramificacao — o jogador reclamou de respostas no plural
+                # aparecendo ao ramificar a partir da letra inicial.
+                if clue.to_lower().ends_with("(pl.)"):
+                    continue
                 var valid: bool = true
                 for letter in answer:
                     if letter < "A" or letter > "Z":
@@ -3381,7 +3388,7 @@ func _is_solved_cell(cell: Vector2i) -> bool:
 func _navigate_to_solved_cell(direction: Vector2i) -> bool:
     if direction == Vector2i.ZERO or preview_parent < 0 or preview_parent >= words.size():
         return false
-    if preview_parent != last_solved_word or words[preview_parent]["state"] != "solved":
+    if words[preview_parent]["state"] != "solved":
         return false
     var current_cells: Array[Vector2i] = _cells(words[preview_parent])
     if preview_anchor < 0 or preview_anchor >= current_cells.size():
@@ -3389,23 +3396,30 @@ func _navigate_to_solved_cell(direction: Vector2i) -> bool:
     var origin: Vector2i = current_cells[preview_anchor]
     var best_cell: Vector2i = origin
     var best_score: float = INF
-    # A navegacao por setas fica restrita as letras da palavra atual.
-    for cell in current_cells:
-        if cell == origin or not _inside_level(cell):
+    # Antes a navegacao por setas ficava restrita as letras da palavra atual,
+    # entao chegar ao fim dela travava o teclado. Agora percorre as letras
+    # de QUALQUER palavra resolvida nessa direcao, permitindo "andar" para
+    # uma palavra vizinha que a atual cruza, do mesmo jeito que o toque/
+    # arrasto ja permitem.
+    for word in words:
+        if word.get("state", "") != "solved":
             continue
-        var offset: Vector2i = cell - origin
-        var forward: int = offset.x * direction.x + offset.y * direction.y
-        if forward <= 0:
-            continue
-        var lateral: int = absi(offset.x * direction.y - offset.y * direction.x)
-        var score: float = float(forward) + float(lateral) * 2.0
-        if score < best_score:
-            best_score = score
-            best_cell = cell
+        for cell in _cells(word):
+            if cell == origin or not _inside_level(cell):
+                continue
+            var offset: Vector2i = cell - origin
+            var forward: int = offset.x * direction.x + offset.y * direction.y
+            if forward <= 0:
+                continue
+            var lateral: int = absi(offset.x * direction.y - offset.y * direction.x)
+            var score: float = float(forward) + float(lateral) * 2.0
+            if score < best_score:
+                best_score = score
+                best_cell = cell
     if best_score == INF:
         return false
     last_navigation_arrow = direction
-    _click_tile(best_cell)
+    _click_tile(best_cell, direction)
     return true
 
 func _input(event: InputEvent) -> void:
@@ -3563,10 +3577,14 @@ func _start_pointer(screen_pos: Vector2) -> void:
     pointer_dragged = false
     panning_board = true
     pan_last_screen = screen_pos
-    if last_solved_word >= 0 and last_solved_word < words.size():
-        if words[last_solved_word]["state"] == "solved" and _inside_level(pointer_cell) and _cells(words[last_solved_word]).has(pointer_cell):
-            pointer_down = true
-            panning_board = false
+    # Antes, so comecava um gesto de selecao em cima da palavra JA ativa
+    # (last_solved_word); tocar direto numa letra de qualquer outra palavra
+    # resolvida virava apenas um gesto de pan da camera e nao fazia nada.
+    # Agora qualquer letra resolvida pode iniciar o gesto, como ja acontece
+    # ao clicar/arrastar (_click_tile / _is_solved_cell).
+    if _is_solved_cell(pointer_cell):
+        pointer_down = true
+        panning_board = false
     # As setas desenhadas continuam clicaveis fora das letras.
     if not pointer_down and _try_tap_branch_arrow(screen_pos):
         return
