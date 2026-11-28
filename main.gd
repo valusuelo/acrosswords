@@ -1830,6 +1830,10 @@ func _select_anchor(index: int, anchor: int) -> void:
     var text_value: String = String(old.get("text", _anchor_letter(index, anchor)))
     typed_buffer = text_value
     _assign_entry(text_value)
+    # Garante que as casas vizinhas comecem a emergir imediatamente, mesmo
+    # que a direcao padrao nao tenha nenhuma palavra candidata (nesse caso
+    # _show_preview_choice nao e chamado e nao criaria essas casas sozinho).
+    _reveal_branch_corner_tiles(wave_origin)
     _load_preview_choices()
 
 func _move_anchor(step: int) -> void:
@@ -1961,18 +1965,29 @@ func _choose(index: int) -> void:
     _update_hud()
     _refresh_board()
 
-func _click_tile(p: Vector2i) -> void:
+func _click_tile(p: Vector2i, entry_direction: Vector2i = Vector2i.ZERO) -> void:
     if game_over:
         return
     # Qualquer letra de qualquer palavra resolvida pode se tornar uma ancora.
-    for i in range(words.size() - 1, -1, -1):
-        if words[i].get("state", "") != "solved":
-            continue
-        var cells: Array[Vector2i] = _cells(words[i])
-        var anchor: int = cells.find(p)
+    var matches: Array[int] = _solved_words_at_cell(p)
+    if not matches.is_empty():
+        # Por padrao, prioriza a palavra resolvida mais recente (como antes).
+        # Numa casa de canto (pertence a mais de uma palavra), a direcao de
+        # chegada do arrasto desempata: continua a palavra cujo eixo
+        # corresponde ao movimento que acabou de atravessar a casa, em vez
+        # de sempre travar na mesma palavra so porque foi a ultima resolvida.
+        matches.reverse()
+        var chosen_index: int = matches[0]
+        if matches.size() > 1 and entry_direction != Vector2i.ZERO:
+            for i in matches:
+                var axis: Vector2i = Vector2i(words[i]["dir"])
+                if axis.x * entry_direction.x + axis.y * entry_direction.y != 0:
+                    chosen_index = i
+                    break
+        var anchor: int = _cells(words[chosen_index]).find(p)
         if anchor >= 0:
             last_navigation_arrow = Vector2i.ZERO
-            _select_anchor(i, anchor)
+            _select_anchor(chosen_index, anchor)
             return
     # Antes da primeira palavra resolvida, permite selecionar a palavra inicial.
     for i in range(words.size() - 1, -1, -1):
@@ -2581,16 +2596,9 @@ func _try_tap_branch_arrow(screen_pos: Vector2) -> bool:
     if preview_anchor >= parent_cells.size():
         return false
     var anchor: Vector2i = parent_cells[preview_anchor]
-    var horizontal: bool = Vector2i(words[preview_parent]["dir"]).x != 0
-    var sides: Array[Vector2i] = []
-    if horizontal:
-        sides.append(Vector2i(0, -1))
-        sides.append(Vector2i(0, 1))
-    else:
-        sides.append(Vector2i(-1, 0))
-        sides.append(Vector2i(1, 0))
-    for side in sides:
-        var world_pos := Vector3((float(anchor.x) + float(side.x) * 0.43) * GAP, 0.93, (float(anchor.y) + float(side.y) * 0.43) * ROW_GAP)
+    # Em um canto (ancora que cruza duas palavras), isto cobre os lados de
+    # ambas, nao so o eixo da palavra "pai" atual.
+    for side in _branch_side_directions(anchor):
         if camera.unproject_position(Vector3((float(anchor.x) + float(side.x)) * GAP, 0.5, (float(anchor.y) + float(side.y)) * ROW_GAP)).distance_to(screen_pos) < 38.0:
             _apply_direction(side)
             return true
@@ -2624,7 +2632,9 @@ func _queue_stage_open_tiles(cells: Array[Vector2i], from_abyss: bool = false) -
         # Para a revelacao externa, inicia perto do plano visivel: a camera
         # inclinada escondia o bloco por tempo demais quando nascia a -2.6.
         var from_height: float = -0.65 if from_abyss else -2.6
-        var opening_duration: float = 0.62 if from_abyss else 1.05
+        # Mais rapido que a onda entre etapas: a casa externa deve
+        # acompanhar a selecao do jogador sem parecer atrasada.
+        var opening_duration: float = 0.34 if from_abyss else 1.05
         if not from_abyss and stage_wave_start_colors.has(cell):
             var start_data: Dictionary = stage_wave_start_colors[cell]
             from_top = start_data.get("top", target_top)
@@ -2809,17 +2819,23 @@ func _refresh_board(cells_to_update: Array[Vector2i] = []) -> void:
                 tile_state[preview_cell] = "anchor_focus"
     if board.has(focus_cell):
         tile_state[focus_cell] = "focus"
-    # O lado nao escolhido mostra um UNICO bloco oliva. O lado selecionado
-    # e representado pelos blocos da palavra proposta (sem setas flutuantes).
+    # Cada lado vazio que ainda nao e a previa atual mostra um bloco oliva.
+    # Numa casa comum isso da no mesmo UNICO bloco de antes; num canto (a
+    # ancora cruza duas palavras), os dois cantos sem letra ficam marcados,
+    # em vez de depender de um unico lado "oposto" fixo que podia cair
+    # exatamente sobre uma letra ja existente da outra palavra.
     if preview_parent >= 0 and preview_parent < words.size() and preview_anchor >= 0:
         var anchor_cells: Array[Vector2i] = _cells(words[preview_parent])
         if preview_anchor < anchor_cells.size():
-            var axis: Vector2i = Vector2i(words[preview_parent]["dir"])
-            var opposite: Vector2i = -preview_dir
-            if opposite == Vector2i.ZERO:
-                opposite = Vector2i(0, 1) if axis.x != 0 else Vector2i(1, 0)
-            var side_cell: Vector2i = anchor_cells[preview_anchor] + opposite
-            if board.has(side_cell) and not (level_mode and side_cell == exit_cell):
+            var anchor_cell: Vector2i = anchor_cells[preview_anchor]
+            for side_dir in _branch_side_directions(anchor_cell):
+                if side_dir == preview_dir:
+                    continue
+                var side_cell: Vector2i = anchor_cell + side_dir
+                if not board.has(side_cell) or (level_mode and side_cell == exit_cell):
+                    continue
+                if solved_cells.has(side_cell):
+                    continue
                 if tile_state.get(side_cell, "base") in ["base", "active", "preview"]:
                     tile_state[side_cell] = "side_option"
 
@@ -3308,15 +3324,59 @@ func _screen_to_cell(screen_pos: Vector2) -> Vector2i:
     var point: Vector3 = hit
     return Vector2i(roundi(point.x / GAP), roundi(point.z / ROW_GAP))
 
+# Retorna o indice de TODAS as palavras resolvidas que passam por esta casa.
+# Uma casa de canto (onde duas palavras se cruzam) retorna as duas; isso
+# permite que arrastar o dedo/mouse continue reconhecendo a casa mesmo
+# quando ela pertence a uma palavra diferente da que estava ativa.
+func _solved_words_at_cell(cell: Vector2i) -> Array[int]:
+    var result: Array[int] = []
+    for i in range(words.size()):
+        if words[i].get("state", "") == "solved" and _cells(words[i]).has(cell):
+            result.append(i)
+    return result
+
+# Direcoes perpendiculares validas para ramificar a partir de uma casa-ancora.
+# Numa casa comum (uma unica palavra resolvida) sao os dois lados do eixo
+# dessa palavra. Num canto (a casa cruza duas palavras com eixos diferentes),
+# reune os lados de AMBAS — assim os dois cantos vazios ficam disponiveis,
+# em vez de travar no eixo de uma unica palavra "pai".
+func _branch_side_directions(anchor_cell: Vector2i) -> Array[Vector2i]:
+    var seen: Dictionary = {}
+    var word_indices: Array[int] = _solved_words_at_cell(anchor_cell)
+    if word_indices.is_empty() and preview_parent >= 0 and preview_parent < words.size():
+        word_indices = [preview_parent]
+    for word_index in word_indices:
+        var axis: Vector2i = Vector2i(words[word_index]["dir"])
+        var perp: Vector2i = Vector2i(0, 1) if axis.x != 0 else Vector2i(1, 0)
+        seen[perp] = true
+        seen[-perp] = true
+    var directions: Array[Vector2i] = []
+    for key in seen.keys():
+        directions.append(key)
+    return directions
+
+# Cria e anima imediatamente (emergindo do abismo) as casas vizinhas de uma
+# ancora que ainda nao existem no tabuleiro, nos dois lados possiveis de
+# ramificacao. Chamado assim que a ancora e selecionada, independente de
+# haver ou nao uma palavra candidata na direcao padrao — antes, quando a
+# direcao padrao nao tinha candidata, nenhuma casa nova era criada ate o
+# jogador trocar de lado manualmente, o que parecia um atraso no bloco novo.
+func _reveal_branch_corner_tiles(anchor_cell: Vector2i) -> void:
+    var created: Array[Vector2i] = []
+    for side in _branch_side_directions(anchor_cell):
+        var side_cell: Vector2i = anchor_cell + side
+        if not _inside_level(side_cell) and not board.has(side_cell):
+            _create_board_tile(side_cell)
+            created.append(side_cell)
+    if not created.is_empty():
+        _refresh_board(created)
+        _queue_stage_open_tiles(created, true)
+
 # Navegação espacial determinística. Não usa a lista de palavras candidatas.
 # O eixo e os índices são calculados pela posição real da casa, sem usar o
 # sentido em que a palavra foi escrita. Nunca altera a direção perpendicular.
 func _is_solved_cell(cell: Vector2i) -> bool:
-    if not _inside_level(cell) or last_solved_word < 0 or last_solved_word >= words.size():
-        return false
-    if words[last_solved_word]["state"] != "solved":
-        return false
-    return _cells(words[last_solved_word]).has(cell)
+    return not _solved_words_at_cell(cell).is_empty()
 
 func _navigate_to_solved_cell(direction: Vector2i) -> bool:
     if direction == Vector2i.ZERO or preview_parent < 0 or preview_parent >= words.size():
@@ -3545,21 +3605,25 @@ func _move_pointer(screen_pos: Vector2) -> void:
         var hovered_cell: Vector2i = _screen_to_cell(sample_pos)
         if hovered_cell == pointer_cell:
             continue
+        var previous_cell: Vector2i = pointer_cell
         pointer_cell = hovered_cell
         # Ao atravessar uma das casas laterais da ancora, troca a direcao
-        # durante o proprio arrasto, sem exigir um toque separado.
+        # durante o proprio arrasto, sem exigir um toque separado. Num canto,
+        # isto cobre os lados de ambas as palavras que cruzam a ancora.
         if preview_parent >= 0 and preview_parent < words.size() and preview_anchor >= 0:
             var parent_cells: Array[Vector2i] = _cells(words[preview_parent])
             if preview_anchor < parent_cells.size():
                 var anchor_cell: Vector2i = parent_cells[preview_anchor]
                 var side_offset: Vector2i = hovered_cell - anchor_cell
-                var parent_axis: Vector2i = Vector2i(words[preview_parent]["dir"])
-                var perpendicular: bool = (parent_axis.x != 0 and side_offset.x == 0 and absi(side_offset.y) == 1) or (parent_axis.y != 0 and side_offset.y == 0 and absi(side_offset.x) == 1)
-                if perpendicular:
+                if side_offset in _branch_side_directions(anchor_cell):
                     _apply_direction(side_offset)
                     continue
         if _is_solved_cell(hovered_cell):
-            _click_tile(hovered_cell)
+            # Numa casa de canto (pertence a duas palavras), a direcao em que
+            # o dedo acabou de se mover decide qual das duas continua
+            # selecionada: a letra permanece destacada, mas a palavra ativa
+            # muda para a que segue o eixo do arrasto.
+            _click_tile(hovered_cell, hovered_cell - previous_cell)
     gesture_cursor = screen_pos
 
 
