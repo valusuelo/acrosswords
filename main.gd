@@ -383,8 +383,9 @@ func _word_difficulty_allowed(item: Dictionary) -> bool:
     var difficulty: int = int(item.get("difficulty", 1))
     if stage >= 9:
         return difficulty >= 2 and difficulty <= allowed
-    if stage >= 7:
-        return difficulty <= allowed
+    # O branch "stage >= 7" era identico a este fallback (nao mudava nenhum
+    # comportamento) e foi removido. Se a intencao original era dar um
+    # tratamento proprio as etapas 7-8, falta decidir essa regra.
     return difficulty <= allowed
 
 func _choose_start_word() -> Dictionary:
@@ -1453,9 +1454,10 @@ func _plan_advanced_level() -> void:
             var candidates: Array[Dictionary] = []
             var parent_cells: Array[Vector2i] = _cells(parent)
             var directions: Array[Vector2i] = [Vector2i(0, -1), Vector2i(0, 1)] if Vector2i(parent["dir"]).x != 0 else [Vector2i(-1, 0), Vector2i(1, 0)]
+            var occupied_this_depth: Dictionary = _occupied_letters()
             for anchor in range(parent_cells.size()):
                 for direction in directions:
-                    for option in _possible_children(parent_idx, anchor, direction):
+                    for option in _possible_children(parent_idx, anchor, direction, occupied_this_depth):
                         candidates.append({"word": option, "anchor": anchor, "direction": direction})
             if candidates.is_empty():
                 break
@@ -1550,7 +1552,7 @@ func _occupied_letters() -> Dictionary:
 
 # Retorna os caminhos que usam precisamente a letra escolhida do pai.
 # Todas as opções válidas começam na letra selecionada, na direção escolhida.
-func _possible_children(index: int, anchor: int, direction: Vector2i) -> Array[Dictionary]:
+func _possible_children(index: int, anchor: int, direction: Vector2i, precomputed_occupied: Dictionary = {}) -> Array[Dictionary]:
     var choices: Array[Dictionary] = []
     if index < 0 or index >= words.size():
         return choices
@@ -1565,7 +1567,10 @@ func _possible_children(index: int, anchor: int, direction: Vector2i) -> Array[D
         return choices
     var crossing: Vector2i = parent_cells[anchor]
     var parent_answer: String = parent["answer"]
-    var occupied: Dictionary = _occupied_letters()
+    # Chamadores em lote (como _plan_advanced_level) ja calculam isto uma vez
+    # por nivel de profundidade e reaproveitam para todas as combinacoes de
+    # ancora x direcao, evitando recalcular o mesmo dicionario repetidas vezes.
+    var occupied: Dictionary = precomputed_occupied if not precomputed_occupied.is_empty() else _occupied_letters()
     # Impedimento por inimigo: não é permitido traçar uma palavra sobre ele.
     if enemy_cell == crossing:
         return choices
@@ -2797,14 +2802,10 @@ func _refresh_board(cells_to_update: Array[Vector2i] = []) -> void:
     if not preview.is_empty():
         var preview_cells: Array[Vector2i] = _cells(preview)
         for preview_cell in preview_cells:
-            var is_crossing: bool = false
-            for solved_word in words:
-                if solved_word["state"] != "solved":
-                    continue
-                if _cells(solved_word).has(preview_cell):
-                    is_crossing = true
-                    break
-            if is_crossing and board.has(preview_cell):
+            # solved_cells ja mapeia exatamente as casas de palavras com
+            # state == "solved" (montado no loop acima), entao uma consulta
+            # O(1) substitui a varredura O(palavras) que havia aqui antes.
+            if solved_cells.has(preview_cell) and board.has(preview_cell):
                 tile_state[preview_cell] = "anchor_focus"
     if board.has(focus_cell):
         tile_state[focus_cell] = "focus"
