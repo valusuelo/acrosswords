@@ -3657,11 +3657,40 @@ func _navigate_arrow_from_anywhere(direction: Vector2i) -> void:
         _select_anchor(last_solved_word, 0)
     _navigate_arrow(direction)
 
-func _apply_direction(direction: Vector2i) -> void:
+# Numa casa de canto, a direcao clicada pode nao ser perpendicular a
+# palavra "pai" ATUALMENTE ativa, mas ser perpendicular a OUTRA palavra
+# resolvida que tambem passa pela mesma ancora. Troca o preview_parent/
+# preview_anchor para essa outra palavra antes de aplicar a direcao, em
+# vez de simplesmente rejeitar o clique (que e o que acontecia antes:
+# o jogo so considerava o eixo da palavra ja selecionada, mesmo quando
+# ela nao tinha nenhuma opcao viavel naquela direcao).
+func _switch_parent_for_direction(direction: Vector2i) -> bool:
     if preview_parent < 0 or preview_parent >= words.size():
+        return false
+    var anchor_cells: Array[Vector2i] = _cells(words[preview_parent])
+    if preview_anchor < 0 or preview_anchor >= anchor_cells.size():
+        return false
+    var anchor_cell: Vector2i = anchor_cells[preview_anchor]
+    for word_index in _solved_words_at_cell(anchor_cell):
+        if word_index == preview_parent:
+            continue
+        var axis: Vector2i = Vector2i(words[word_index]["dir"])
+        if axis.x * direction.x + axis.y * direction.y != 0:
+            continue
+        var anchor_in_word: int = _cells(words[word_index]).find(anchor_cell)
+        if anchor_in_word >= 0:
+            _select_anchor(word_index, anchor_in_word)
+            return true
+    return false
+
+func _apply_direction(direction: Vector2i) -> void:
+    if preview_parent < 0 or preview_parent >= words.size() or direction == Vector2i.ZERO:
         return
     var parent_dir: Vector2i = words[preview_parent]["dir"]
-    if direction == Vector2i.ZERO or parent_dir.x * direction.x + parent_dir.y * direction.y != 0:
+    if parent_dir.x * direction.x + parent_dir.y * direction.y != 0:
+        if not _switch_parent_for_direction(direction):
+            return
+        _apply_direction(direction)
         return
     if direction == preview_dir:
         return
